@@ -1,5 +1,8 @@
 // スタイルが当たっていないテキストを見つけて、近いスタイルを適用するプラグイン
 
+// 近いスタイルがあるテキストノードのIDを保存
+let hasNearestTextNodeIds = [];
+
 figma.showUI(__html__, { width: 320, height: 700 });
 
 // 選択状態の変更を監視
@@ -13,12 +16,20 @@ scanStyles();
 figma.ui.onmessage = async (msg) => {
     if (msg.type === 'scan-styles') {
         await scanStyles();
-    } else if (msg.type === 'apply-styles') {
+    } else if (msg.type === 'select-has-nearest') {
+        await selectHasNearestNodes();
+    } else if (msg.type === 'apply-nearest-styles') {
         await applyNearestStyles();
+    } else if (msg.type === 'apply-closest-styles') {
+        await applyClosestStyles();
+    } else if (msg.type === 'create-new-styles') {
+        await createNewStyles();
     } else if (msg.type === 'check-unused-styles') {
         await checkUnusedStyles();
     } else if (msg.type === 'delete-unused-styles') {
         await deleteUnusedStyles();
+    } else if (msg.type === 'set-line-height-150') {
+        await setLineHeightTo150();
     } else if (msg.type === 'cancel') {
         figma.closePlugin();
     }
@@ -55,6 +66,9 @@ async function scanStyles() {
     let notAppliedCount = 0; // スタイル未適用
     let hasNearestCount = 0; // 近いスタイルがある
     let noNearestCount = 0; // 近いスタイルがない
+    
+    // 近いスタイルがあるテキストノードのIDをリセット
+    hasNearestTextNodeIds = [];
 
     for (const textNode of textNodes) {
         // スタイルが既に当たっているかチェック
@@ -79,6 +93,8 @@ async function scanStyles() {
 
         if (nearestStyle) {
             hasNearestCount++;
+            // 近いスタイルがあるテキストノードのIDを保存
+            hasNearestTextNodeIds.push(textNode.id);
         } else {
             noNearestCount++;
         }
@@ -95,13 +111,72 @@ async function scanStyles() {
     });
 }
 
+// 近いスタイルがあるテキストノードを選択
+async function selectHasNearestNodes() {
+    // 現在選択されているノードから開始（またはページ全体）
+    const currentSelection = figma.currentPage.selection;
+    let rootNodes = [];
+    
+    if (currentSelection.length > 0) {
+        // 現在選択されているノードをルートとして使用
+        rootNodes = currentSelection;
+    } else {
+        // 選択がない場合は、ページ全体のフレームを対象にする
+        // ただし、これは大量のノードになる可能性があるので、選択がある場合のみ動作させる
+        return;
+    }
+    
+    // 対象となるテキストノードを収集
+    const textNodes = [];
+    for (const node of rootNodes) {
+        collectTextNodes(node, textNodes);
+    }
+    
+    // ドキュメント内のすべてのテキストスタイルを取得
+    const textStyles = await figma.getLocalTextStylesAsync();
+    
+    // 近いスタイルがあるテキストノードを収集
+    const nodesToSelect = [];
+    
+    for (const textNode of textNodes) {
+        // スタイルが既に当たっている場合はスキップ
+        if (hasTextStyle(textNode)) {
+            continue;
+        }
+        
+        // テキストノードのプロパティを取得
+        const textProps = getTextProperties(textNode);
+        
+        if (!textProps) {
+            continue;
+        }
+        
+        // 近いスタイルを探す
+        const nearestStyle = await findNearestStyle(textProps, textStyles);
+        
+        if (nearestStyle) {
+            // 近いスタイルがあるテキストノードを選択対象に追加
+            nodesToSelect.push(textNode);
+        }
+    }
+    
+    // ノードを選択
+    if (nodesToSelect.length > 0) {
+        try {
+            figma.currentPage.selection = nodesToSelect;
+        } catch (error) {
+            console.error('Error selecting nodes:', error);
+        }
+    }
+}
+
+// 近いスタイルを適用する（近いスタイルがあるものだけ）
 async function applyNearestStyles() {
     const selection = figma.currentPage.selection;
 
     if (selection.length === 0) {
         figma.ui.postMessage({
             type: 'result',
-            found: 0,
             applied: 0,
             skipped: 0
         });
@@ -110,7 +185,6 @@ async function applyNearestStyles() {
 
     // 対象となるテキストノードを収集
     const textNodes = [];
-
     for (const node of selection) {
         collectTextNodes(node, textNodes);
     }
@@ -118,18 +192,14 @@ async function applyNearestStyles() {
     // ドキュメント内のすべてのテキストスタイルを取得
     const textStyles = await figma.getLocalTextStylesAsync();
 
-    let foundCount = 0;
     let appliedCount = 0;
     let skippedCount = 0;
-    let createdCount = 0;
 
     for (const textNode of textNodes) {
         // スタイルが既に当たっているかチェック
         if (hasTextStyle(textNode)) {
             continue; // スタイルが当たっている場合はスキップ
         }
-
-        foundCount++;
 
         // テキストノードのプロパティを取得
         const textProps = getTextProperties(textNode);
@@ -140,7 +210,7 @@ async function applyNearestStyles() {
         }
 
         // 近いスタイルを探す
-        let nearestStyle = await findNearestStyle(textProps, textStyles);
+        const nearestStyle = await findNearestStyle(textProps, textStyles);
 
         if (nearestStyle) {
             // スタイルを適用
@@ -152,6 +222,62 @@ async function applyNearestStyles() {
                 skippedCount++;
             }
         } else {
+            // 近いスタイルがない場合はスキップ
+            skippedCount++;
+        }
+    }
+
+    // 結果を表示
+    figma.ui.postMessage({
+        type: 'result',
+        applied: appliedCount,
+        skipped: skippedCount
+    });
+}
+
+// スタイルを新規作成する（近いスタイルがないものだけ）
+async function createNewStyles() {
+    const selection = figma.currentPage.selection;
+
+    if (selection.length === 0) {
+        figma.ui.postMessage({
+            type: 'result',
+            created: 0,
+            skipped: 0
+        });
+        return;
+    }
+
+    // 対象となるテキストノードを収集
+    const textNodes = [];
+    for (const node of selection) {
+        collectTextNodes(node, textNodes);
+    }
+
+    // ドキュメント内のすべてのテキストスタイルを取得
+    const textStyles = await figma.getLocalTextStylesAsync();
+
+    let createdCount = 0;
+    let skippedCount = 0;
+
+    for (const textNode of textNodes) {
+        // スタイルが既に当たっているかチェック
+        if (hasTextStyle(textNode)) {
+            continue; // スタイルが当たっている場合はスキップ
+        }
+
+        // テキストノードのプロパティを取得
+        const textProps = getTextProperties(textNode);
+
+        if (!textProps) {
+            skippedCount++;
+            continue;
+        }
+
+        // 近いスタイルを探す
+        const nearestStyle = await findNearestStyle(textProps, textStyles);
+
+        if (!nearestStyle) {
             // 近いスタイルがない場合は新規作成
             try {
                 const newStyle = await createTextStyleFromNode(textNode, textProps);
@@ -159,22 +285,94 @@ async function applyNearestStyles() {
                     textStyles.push(newStyle); // 作成したスタイルをリストに追加
                     await textNode.setTextStyleIdAsync(newStyle.id);
                     createdCount++;
-                    appliedCount++;
                 }
             } catch (error) {
                 console.error('Error creating text style:', error);
                 skippedCount++;
             }
+        } else {
+            // 近いスタイルがある場合はスキップ
+            skippedCount++;
+        }
+    }
+
+    // 新規作成の場合は結果を表示せず、スキャンのみ再実行
+    // 結果を表示しない
+    // スキャンを再実行して結果を更新
+    setTimeout(() => {
+        scanStyles();
+    }, 500);
+}
+
+// 一番近いスタイルを適用する（条件を無視して、近いスタイルがないものに対して適用）
+async function applyClosestStyles() {
+    const selection = figma.currentPage.selection;
+
+    if (selection.length === 0) {
+        figma.ui.postMessage({
+            type: 'result',
+            applied: 0,
+            skipped: 0
+        });
+        return;
+    }
+
+    // 対象となるテキストノードを収集
+    const textNodes = [];
+    for (const node of selection) {
+        collectTextNodes(node, textNodes);
+    }
+
+    // ドキュメント内のすべてのテキストスタイルを取得
+    const textStyles = await figma.getLocalTextStylesAsync();
+
+    let appliedCount = 0;
+    let skippedCount = 0;
+
+    for (const textNode of textNodes) {
+        // スタイルが既に当たっているかチェック
+        if (hasTextStyle(textNode)) {
+            continue; // スタイルが当たっている場合はスキップ
+        }
+
+        // テキストノードのプロパティを取得
+        const textProps = getTextProperties(textNode);
+
+        if (!textProps) {
+            skippedCount++;
+            continue;
+        }
+
+        // 通常の条件で近いスタイルを探す
+        const nearestStyle = await findNearestStyle(textProps, textStyles);
+
+        // 通常の条件で近いスタイルがない場合のみ、一番近いスタイルを探す
+        if (!nearestStyle) {
+            const closestStyle = await findClosestStyle(textProps, textStyles);
+            
+            if (closestStyle) {
+                // 一番近いスタイルを適用
+                try {
+                    await textNode.setTextStyleIdAsync(closestStyle.id);
+                    appliedCount++;
+                } catch (error) {
+                    console.error('Error applying closest text style:', error);
+                    skippedCount++;
+                }
+            } else {
+                skippedCount++;
+            }
+        } else {
+            // 通常の条件で近いスタイルがある場合はスキップ
+            skippedCount++;
         }
     }
 
     // 結果を表示
     figma.ui.postMessage({
         type: 'result',
-        found: foundCount,
         applied: appliedCount,
-        skipped: skippedCount,
-        created: createdCount
+        skipped: skippedCount
     });
 }
 
@@ -324,6 +522,83 @@ async function findNearestStyle(textProps, textStyles) {
     }
 
     return nearestStyle ? nearestStyle.style : null;
+}
+
+// フォントウェイト名を数値に変換
+function fontWeightToNumber(weight) {
+    const weightMap = {
+        'Thin': 100,
+        'ExtraLight': 200,
+        'UltraLight': 200,
+        'Light': 300,
+        'Regular': 400,
+        'Normal': 400,
+        'Medium': 500,
+        'SemiBold': 600,
+        'DemiBold': 600,
+        'Bold': 700,
+        'ExtraBold': 800,
+        'UltraBold': 800,
+        'Black': 900,
+        'Heavy': 900
+    };
+    
+    // 大文字小文字を区別せずに検索
+    const normalizedWeight = weight.charAt(0).toUpperCase() + weight.slice(1);
+    
+    // 完全一致を探す
+    if (weightMap[normalizedWeight] !== undefined) {
+        return weightMap[normalizedWeight];
+    }
+    
+    // 部分一致を探す（例: "SemiBold" が "Semi Bold" として来る場合）
+    for (const key in weightMap) {
+        if (normalizedWeight.includes(key) || key.includes(normalizedWeight)) {
+            return weightMap[key];
+        }
+    }
+    
+    // デフォルト値（見つからない場合はRegularとして扱う）
+    return 400;
+}
+
+// 条件を無視して一番近いスタイルを見つける（フォントファミリーが同じで、サイズとウェイトが最も近いもの）
+async function findClosestStyle(textProps, textStyles) {
+    let closestStyle = null;
+    let minTotalDiff = Infinity;
+
+    // テキストのウェイトを数値に変換
+    const textWeightNum = fontWeightToNumber(textProps.fontWeight);
+
+    for (const style of textStyles) {
+        // スタイルのプロパティを取得
+        const styleFontName = style.fontName;
+        const styleFontSize = style.fontSize;
+
+        // フォントファミリーが同じかチェック（最低限の条件）
+        if (styleFontName.family !== textProps.fontFamily) {
+            continue;
+        }
+
+        // フォントサイズの差を計算
+        const sizeDiff = Math.abs(styleFontSize - textProps.fontSize);
+        
+        // フォントウェイトの差を計算
+        const styleWeightNum = fontWeightToNumber(styleFontName.style);
+        const weightDiff = Math.abs(styleWeightNum - textWeightNum);
+        
+        // サイズとウェイトの合計差を計算（サイズの差を優先するため、ウェイトの差は小さめの係数をかける）
+        // サイズの差をpt単位、ウェイトの差を100単位で正規化して比較
+        const totalDiff = sizeDiff + (weightDiff / 100) * 0.5; // ウェイトの差はサイズの差より影響を小さく
+
+        // より近いスタイルを優先
+        if (totalDiff < minTotalDiff) {
+            minTotalDiff = totalDiff;
+            closestStyle = style;
+        }
+    }
+
+    return closestStyle;
 }
 
 // テキストノードから新規スタイルを作成
@@ -563,5 +838,71 @@ async function deleteUnusedStyles() {
         deletedCount: deletedCount,
         errors: errors,
         error: errors.length > 0 ? `${errors.length}件のスタイルで削除エラーが発生しました` : null
+    });
+}
+
+// 行間がAutoになっているスタイルを全て150%に変更
+async function setLineHeightTo150() {
+    // すべてのローカルテキストスタイルを取得
+    const textStyles = await figma.getLocalTextStylesAsync();
+    
+    if (textStyles.length === 0) {
+        figma.ui.postMessage({
+            type: 'set-line-height-result',
+            updatedCount: 0,
+            error: null
+        });
+        return;
+    }
+    
+    let updatedCount = 0;
+    const errors = [];
+    
+    for (const style of textStyles) {
+        try {
+            // 行間がAUTOかチェック
+            const lineHeight = style.lineHeight;
+            
+            // lineHeightがundefined、null、またはunitが'AUTO'の場合
+            if (!lineHeight || (lineHeight.unit === 'AUTO')) {
+                // フォントを読み込む（行間を設定する前に必要）
+                try {
+                    const fontName = style.fontName;
+                    await figma.loadFontAsync({
+                        family: fontName.family,
+                        style: fontName.style
+                    });
+                    
+                    // 行間を150%に設定
+                    style.lineHeight = {
+                        unit: 'PERCENT',
+                        value: 150
+                    };
+                    updatedCount++;
+                } catch (setError) {
+                    // 設定に失敗した場合はエラーを記録
+                    console.error(`Error setting line height for style ${style.name}:`, setError);
+                    const errorMessage = setError.message || setError.toString() || 'Failed to set line height';
+                    errors.push({
+                        name: style.name,
+                        error: errorMessage
+                    });
+                }
+            }
+        } catch (error) {
+            console.error(`Error updating line height for style ${style.name}:`, error);
+            errors.push({
+                name: style.name,
+                error: error.message || 'Unknown error'
+            });
+        }
+    }
+    
+    // 結果を送信
+    figma.ui.postMessage({
+        type: 'set-line-height-result',
+        updatedCount: updatedCount,
+        errors: errors,
+        error: errors.length > 0 ? `${errors.length}件のスタイルで更新エラーが発生しました` : null
     });
 }
