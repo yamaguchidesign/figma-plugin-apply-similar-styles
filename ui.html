@@ -128,10 +128,16 @@
             border: 1px solid #ffc107;
             border-radius: 6px;
             line-height: 1.6;
+            opacity: 1;
+            transition: opacity 0.5s ease-out;
         }
 
         .delete-result.show {
             display: block;
+        }
+
+        .delete-result.fade-out {
+            opacity: 0;
         }
 
         .delete-result.success {
@@ -176,22 +182,24 @@
     </div>
 
     <div id="main-content" style="display: none;">
-        <div class="button-group">
-            <button id="scan" class="primary">スキャン</button>
-        </div>
-
         <div id="scan-result" class="result" style="display: none;">
             <div class="result-item">スタイル適用済み: <span id="scan-applied" class="highlight">0</span>件</div>
             <div class="result-item">スタイル未適用: <span id="scan-not-applied" class="highlight">0</span>件</div>
-            <div class="result-item">近いスタイルがある: <span id="scan-has-nearest" class="highlight">0</span>件</div>
+            <div class="result-item-with-button">
+                <span>近いスタイルがある: <span id="scan-has-nearest" class="highlight">0</span>件</span>
+                <button id="select-has-nearest" style="display: none; padding: 4px 8px; font-size: 11px; border-radius: 4px; cursor: pointer; transition: all 0.2s; border: 1px solid #ddd; background: white;">選択</button>
+            </div>
+            <div style="margin-top: 8px; margin-bottom: 12px;">
+                <button id="apply-nearest" class="primary" style="width: 100%; display: none;">近いスタイルを適用</button>
+            </div>
             <div class="result-item">近いスタイルがない: <span id="scan-no-nearest" class="highlight">0</span>件</div>
-            <div style="margin-top: 12px;">
-                <button id="apply-and-create" class="primary" style="width: 100%; display: none;">適用&新規作成</button>
+            <div style="margin-top: 8px; display: flex; gap: 8px;">
+                <button id="create-new" class="primary" style="flex: 1; display: none;">新しいスタイル<br>を作成</button>
+                <button id="apply-closest" class="primary" style="flex: 1; display: none;">一番近い<br>スタイルを適用</button>
             </div>
         </div>
 
         <div id="result" class="result" style="display: none;">
-            <div class="result-item">見つけたテキスト: <span id="found" class="highlight">0</span>件</div>
             <div class="result-item">適用できた: <span id="applied" class="highlight">0</span>件</div>
             <div class="result-item">新規作成: <span id="created" class="highlight">0</span>件</div>
             <div class="result-item">スキップ: <span id="skipped" class="highlight">0</span>件</div>
@@ -208,28 +216,50 @@
   <button id="check-unused" style="width: 100%;">未使用スタイルをチェック</button>
 
   <div id="unused-result" class="result">
-        <div class="result-item">総スタイル数: <span id="total-styles" class="highlight">0</span>件</div>
-        <div class="result-item">使用中: <span id="used-styles" class="highlight">0</span>件</div>
-        <div class="result-item-with-button">
-            <span>未使用: <span id="unused-count" class="highlight">0</span>件</span>
-            <button id="delete-unused" class="delete-button-small" style="display: none;">未使用スタイルを全て削除</button>
+        <div id="unused-message" class="result-item"></div>
+        <div class="result-item" id="unused-with-button" style="display: none;">
+            <span>未使用スタイル: <span id="unused-count" class="highlight">0</span>件</span>
         </div>
         <div id="unused-list" class="unused-styles-list" style="display: none;"></div>
+        <div style="margin-top: 12px;">
+            <button id="delete-unused" class="delete-button-small primary" style="width: 100%; display: none;">未使用スタイルを全て削除</button>
+        </div>
     </div>
 
     <div id="delete-result" class="delete-result">
         <div class="result-item" id="delete-message"></div>
     </div>
 
+    <div class="separator"></div>
+
+    <h3>行間を変更</h3>
+    <div class="description">
+        行間がAutoになっているスタイルを全て150%に変更します。
+    </div>
+
+    <button id="set-line-height-150" style="width: 100%;">行間Autoを150%に変更</button>
+
+    <div id="line-height-result" class="delete-result">
+        <div class="result-item" id="line-height-message"></div>
+    </div>
+
     <script>
         // 初期状態はcode.js側でチェックされるので、ここでは何もしない
 
-        document.getElementById('scan').onclick = () => {
-            parent.postMessage({ pluginMessage: { type: 'scan-styles' } }, '*');
+        document.getElementById('select-has-nearest').onclick = () => {
+            parent.postMessage({ pluginMessage: { type: 'select-has-nearest' } }, '*');
         };
 
-        document.getElementById('apply-and-create').onclick = () => {
-            parent.postMessage({ pluginMessage: { type: 'apply-styles' } }, '*');
+        document.getElementById('apply-nearest').onclick = () => {
+            parent.postMessage({ pluginMessage: { type: 'apply-nearest-styles' } }, '*');
+        };
+
+        document.getElementById('create-new').onclick = () => {
+            parent.postMessage({ pluginMessage: { type: 'create-new-styles' } }, '*');
+        };
+
+        document.getElementById('apply-closest').onclick = () => {
+            parent.postMessage({ pluginMessage: { type: 'apply-closest-styles' } }, '*');
         };
 
         document.getElementById('check-unused').onclick = () => {
@@ -240,6 +270,10 @@
             parent.postMessage({ pluginMessage: { type: 'delete-unused-styles' } }, '*');
         };
 
+        document.getElementById('set-line-height-150').onclick = () => {
+            parent.postMessage({ pluginMessage: { type: 'set-line-height-150' } }, '*');
+        };
+
         // 結果を受信
         window.onmessage = (event) => {
             const msg = event.data.pluginMessage;
@@ -248,7 +282,10 @@
                 const noSelectionMsg = document.getElementById('no-selection-message');
                 const mainContent = document.getElementById('main-content');
                 const scanResult = document.getElementById('scan-result');
-                const applyButton = document.getElementById('apply-and-create');
+                const selectHasNearestButton = document.getElementById('select-has-nearest');
+                const applyNearestButton = document.getElementById('apply-nearest');
+                const createNewButton = document.getElementById('create-new');
+                const applyClosestButton = document.getElementById('apply-closest');
 
                 if (!msg.hasSelection) {
                     noSelectionMsg.style.display = 'block';
@@ -264,20 +301,35 @@
                     
                     scanResult.style.display = 'block';
                     
-                    // 近いスタイルがないものがある場合のみ「適用&新規作成」ボタンを表示
-                    if (msg.noNearest > 0 || msg.hasNearest > 0) {
-                        applyButton.style.display = 'block';
+                    // 近いスタイルがある場合のみ「選択」ボタンと「近いスタイルを適用」ボタンを表示
+                    if (msg.hasNearest > 0) {
+                        selectHasNearestButton.style.display = 'inline-block';
+                        applyNearestButton.style.display = 'block';
                     } else {
-                        applyButton.style.display = 'none';
+                        selectHasNearestButton.style.display = 'none';
+                        applyNearestButton.style.display = 'none';
+                    }
+                    
+                    // 近いスタイルがない場合のみ「スタイルを新規作成」ボタンを表示
+                    if (msg.noNearest > 0) {
+                        createNewButton.style.display = 'block';
+                    } else {
+                        createNewButton.style.display = 'none';
+                    }
+                    
+                    // 近いスタイルがない場合のみ「一番近いスタイルを適用」ボタンを表示
+                    if (msg.noNearest > 0) {
+                        applyClosestButton.style.display = 'block';
+                    } else {
+                        applyClosestButton.style.display = 'none';
                     }
                 }
             }
 
             if (msg.type === 'result') {
-                document.getElementById('found').textContent = msg.found;
-                document.getElementById('applied').textContent = msg.applied;
+                document.getElementById('applied').textContent = msg.applied || 0;
                 document.getElementById('created').textContent = msg.created || 0;
-                document.getElementById('skipped').textContent = msg.skipped;
+                document.getElementById('skipped').textContent = msg.skipped || 0;
                 document.getElementById('result').style.display = 'block';
                 
                 // 適用後は再度スキャンを実行して結果を更新
@@ -287,17 +339,18 @@
             }
 
             else if (msg.type === 'unused-styles-result') {
-                document.getElementById('total-styles').textContent = msg.totalStyles;
-                document.getElementById('used-styles').textContent = msg.usedStyles || 0;
-                document.getElementById('unused-count').textContent = msg.unusedStyles.length;
-
+                const unusedMessage = document.getElementById('unused-message');
+                const unusedWithButton = document.getElementById('unused-with-button');
+                const unusedCount = document.getElementById('unused-count');
                 const listContainer = document.getElementById('unused-list');
                 const deleteButton = document.getElementById('delete-unused');
                 listContainer.innerHTML = '';
 
                 if (msg.unusedStyles.length > 0) {
-                    // 未使用スタイルがある場合は削除ボタンを表示
-                    deleteButton.style.display = 'inline-block';
+                    // 未使用スタイルがある場合
+                    unusedMessage.style.display = 'none';
+                    unusedWithButton.style.display = 'block';
+                    unusedCount.textContent = msg.unusedStyles.length;
                     
                     msg.unusedStyles.forEach(style => {
                         const item = document.createElement('div');
@@ -306,10 +359,14 @@
                         listContainer.appendChild(item);
                     });
                     listContainer.style.display = 'block';
+                    deleteButton.style.display = 'block';
                 } else {
-                    // 未使用スタイルがない場合は削除ボタンを非表示
-                    deleteButton.style.display = 'none';
+                    // 未使用スタイルがない場合
+                    unusedMessage.textContent = '未使用スタイルはありません';
+                    unusedMessage.style.display = 'block';
+                    unusedWithButton.style.display = 'none';
                     listContainer.style.display = 'none';
+                    deleteButton.style.display = 'none';
                 }
 
                 document.getElementById('unused-result').classList.add('show');
@@ -320,6 +377,7 @@
                 const deleteMessage = document.getElementById('delete-message');
                 
                 deleteResult.className = 'delete-result';
+                deleteResult.classList.remove('fade-out');
                 
                 if (msg.error) {
                     deleteResult.classList.add('error', 'show');
@@ -332,9 +390,44 @@
                     setTimeout(() => {
                         parent.postMessage({ pluginMessage: { type: 'check-unused-styles' } }, '*');
                     }, 500);
+                    
+                    // 7秒後にフェードアウト
+                    setTimeout(() => {
+                        deleteResult.classList.add('fade-out');
+                        setTimeout(() => {
+                            deleteResult.classList.remove('show', 'fade-out');
+                        }, 500); // フェードアウトアニメーションの時間
+                    }, 7000);
                 } else {
                     deleteResult.classList.add('show');
                     deleteMessage.textContent = '削除する未使用スタイルはありませんでした';
+                }
+            }
+
+            else if (msg.type === 'set-line-height-result') {
+                const lineHeightResult = document.getElementById('line-height-result');
+                const lineHeightMessage = document.getElementById('line-height-message');
+                
+                lineHeightResult.className = 'delete-result';
+                lineHeightResult.classList.remove('fade-out');
+                
+                if (msg.error) {
+                    lineHeightResult.classList.add('error', 'show');
+                    lineHeightMessage.textContent = `エラー: ${msg.error}`;
+                } else if (msg.updatedCount > 0) {
+                    lineHeightResult.classList.add('success', 'show');
+                    lineHeightMessage.textContent = `${msg.updatedCount}件のスタイルの行間を150%に変更しました`;
+                    
+                    // 7秒後にフェードアウト
+                    setTimeout(() => {
+                        lineHeightResult.classList.add('fade-out');
+                        setTimeout(() => {
+                            lineHeightResult.classList.remove('show', 'fade-out');
+                        }, 500); // フェードアウトアニメーションの時間
+                    }, 7000);
+                } else {
+                    lineHeightResult.classList.add('show');
+                    lineHeightMessage.textContent = '行間がAutoのスタイルはありませんでした';
                 }
             }
         };
