@@ -2,22 +2,53 @@
 
 // 近いスタイルがあるテキストノードのIDを保存
 let hasNearestTextNodeIds = [];
+// 近いスタイルがないテキストノードのIDを保存
+let noNearestTextNodeIds = [];
 
-figma.showUI(__html__, { width: 320, height: 700 });
+// UIが表示されているかどうかのフラグ
+let isUIVisible = false;
 
-// 選択状態の変更を監視
-figma.on('selectionchange', async () => {
-    await scanStyles();
-});
+// UIを開く関数
+function openUI() {
+    if (!isUIVisible) {
+        figma.showUI(__html__, { width: 320, height: 700 });
+        isUIVisible = true;
+        
+        // 選択状態の変更を監視
+        figma.on('selectionchange', async () => {
+            await scanStyles();
+        });
+        
+        // 初期状態をチェック
+        scanStyles();
+    }
+}
 
-// 初期状態をチェック
-scanStyles();
+// プラグイン起動時のコマンドをチェック
+const command = figma.command;
+
+if (command === 'open-panel' || command === undefined || command === '') {
+    // パネルを開くコマンド、またはコマンドがない場合（直接実行）はUIを開く
+    openUI();
+} else if (command === 'apply-larger-style') {
+    // 文字サイズの大きいスタイルを適用
+    applyLargerStyle().then(() => {
+        figma.closePlugin();
+    });
+} else if (command === 'apply-smaller-style') {
+    // 文字サイズの小さいスタイルを適用
+    applySmallerStyle().then(() => {
+        figma.closePlugin();
+    });
+}
 
 figma.ui.onmessage = async (msg) => {
     if (msg.type === 'scan-styles') {
         await scanStyles();
     } else if (msg.type === 'select-has-nearest') {
         await selectHasNearestNodes();
+    } else if (msg.type === 'select-no-nearest') {
+        await selectNoNearestNodes();
     } else if (msg.type === 'apply-nearest-styles') {
         await applyNearestStyles();
     } else if (msg.type === 'apply-closest-styles') {
@@ -43,6 +74,11 @@ function checkSelection() {
 
 // スキャン機能：スタイルの状態を分析する（適用はしない）
 async function scanStyles() {
+    // UIが開いていない場合は何もしない
+    if (!isUIVisible) {
+        return;
+    }
+    
     const selection = figma.currentPage.selection;
 
     if (selection.length === 0) {
@@ -69,6 +105,8 @@ async function scanStyles() {
     
     // 近いスタイルがあるテキストノードのIDをリセット
     hasNearestTextNodeIds = [];
+    // 近いスタイルがないテキストノードのIDをリセット
+    noNearestTextNodeIds = [];
 
     for (const textNode of textNodes) {
         // スタイルが既に当たっているかチェック
@@ -97,6 +135,8 @@ async function scanStyles() {
             hasNearestTextNodeIds.push(textNode.id);
         } else {
             noNearestCount++;
+            // 近いスタイルがないテキストノードのIDを保存
+            noNearestTextNodeIds.push(textNode.id);
         }
     }
 
@@ -170,16 +210,70 @@ async function selectHasNearestNodes() {
     }
 }
 
+// 近いスタイルがないテキストノードを選択
+async function selectNoNearestNodes() {
+    // 現在選択されているノードから開始（またはページ全体）
+    const currentSelection = figma.currentPage.selection;
+    let rootNodes = [];
+    
+    if (currentSelection.length > 0) {
+        // 現在選択されているノードをルートとして使用
+        rootNodes = currentSelection;
+    } else {
+        // 選択がない場合は、ページ全体のフレームを対象にする
+        // ただし、これは大量のノードになる可能性があるので、選択がある場合のみ動作させる
+        return;
+    }
+    
+    // 対象となるテキストノードを収集
+    const textNodes = [];
+    for (const node of rootNodes) {
+        collectTextNodes(node, textNodes);
+    }
+    
+    // ドキュメント内のすべてのテキストスタイルを取得
+    const textStyles = await figma.getLocalTextStylesAsync();
+    
+    // 近いスタイルがないテキストノードを収集
+    const nodesToSelect = [];
+    
+    for (const textNode of textNodes) {
+        // スタイルが既に当たっている場合はスキップ
+        if (hasTextStyle(textNode)) {
+            continue;
+        }
+        
+        // テキストノードのプロパティを取得
+        const textProps = getTextProperties(textNode);
+        
+        if (!textProps) {
+            continue;
+        }
+        
+        // 近いスタイルを探す
+        const nearestStyle = await findNearestStyle(textProps, textStyles);
+        
+        if (!nearestStyle) {
+            // 近いスタイルがないテキストノードを選択対象に追加
+            nodesToSelect.push(textNode);
+        }
+    }
+    
+    // ノードを選択
+    if (nodesToSelect.length > 0) {
+        try {
+            figma.currentPage.selection = nodesToSelect;
+        } catch (error) {
+            console.error('Error selecting nodes:', error);
+        }
+    }
+}
+
 // 近いスタイルを適用する（近いスタイルがあるものだけ）
 async function applyNearestStyles() {
     const selection = figma.currentPage.selection;
 
     if (selection.length === 0) {
-        figma.ui.postMessage({
-            type: 'result',
-            applied: 0,
-            skipped: 0
-        });
         return;
     }
 
@@ -227,12 +321,19 @@ async function applyNearestStyles() {
         }
     }
 
-    // 結果を表示
-    figma.ui.postMessage({
-        type: 'result',
-        applied: appliedCount,
-        skipped: skippedCount
-    });
+    // 通知を表示
+    if (appliedCount > 0) {
+        figma.ui.postMessage({
+            type: 'notification',
+            message: `${appliedCount}件 近いスタイルを適用しました`,
+            color: 'green'
+        });
+    }
+    
+    // スキャンを再実行して結果を更新
+    setTimeout(() => {
+        scanStyles();
+    }, 500);
 }
 
 // スタイルを新規作成する（近いスタイルがないものだけ）
@@ -240,11 +341,6 @@ async function createNewStyles() {
     const selection = figma.currentPage.selection;
 
     if (selection.length === 0) {
-        figma.ui.postMessage({
-            type: 'result',
-            created: 0,
-            skipped: 0
-        });
         return;
     }
 
@@ -296,8 +392,15 @@ async function createNewStyles() {
         }
     }
 
-    // 新規作成の場合は結果を表示せず、スキャンのみ再実行
-    // 結果を表示しない
+    // 通知を表示
+    if (createdCount > 0) {
+        figma.ui.postMessage({
+            type: 'notification',
+            message: `${createdCount}件 新しいスタイルを作成しました`,
+            color: 'green'
+        });
+    }
+    
     // スキャンを再実行して結果を更新
     setTimeout(() => {
         scanStyles();
@@ -309,11 +412,6 @@ async function applyClosestStyles() {
     const selection = figma.currentPage.selection;
 
     if (selection.length === 0) {
-        figma.ui.postMessage({
-            type: 'result',
-            applied: 0,
-            skipped: 0
-        });
         return;
     }
 
@@ -368,12 +466,19 @@ async function applyClosestStyles() {
         }
     }
 
-    // 結果を表示
-    figma.ui.postMessage({
-        type: 'result',
-        applied: appliedCount,
-        skipped: skippedCount
-    });
+    // 通知を表示
+    if (appliedCount > 0) {
+        figma.ui.postMessage({
+            type: 'notification',
+            message: `${appliedCount}件 まだ近いスタイルを適用しました`,
+            color: 'green'
+        });
+    }
+    
+    // スキャンを再実行して結果を更新
+    setTimeout(() => {
+        scanStyles();
+    }, 500);
 }
 
 // テキストノードを再帰的に収集
@@ -462,8 +567,11 @@ async function findNearestStyle(textProps, textStyles) {
             continue;
         }
 
-        // フォントウェイト（style）が完全一致するかチェック
-        if (styleFontName.style !== textProps.fontWeight) {
+        // フォントウェイト（style）が1段階以内かチェック
+        const textWeightNum = fontWeightToNumber(textProps.fontWeight);
+        const styleWeightNum = fontWeightToNumber(styleFontName.style);
+        const weightDiff = Math.abs(styleWeightNum - textWeightNum);
+        if (weightDiff > 100) {
             continue;
         }
 
@@ -905,4 +1013,236 @@ async function setLineHeightTo150() {
         errors: errors,
         error: errors.length > 0 ? `${errors.length}件のスタイルで更新エラーが発生しました` : null
     });
+}
+
+// 文字サイズの大きいスタイルを適用
+async function applyLargerStyle() {
+    const selection = figma.currentPage.selection;
+    
+    if (selection.length === 0) {
+        return;
+    }
+    
+    // 対象となるテキストノードを収集
+    const textNodes = [];
+    for (const node of selection) {
+        collectTextNodes(node, textNodes);
+    }
+    
+    if (textNodes.length === 0) {
+        return;
+    }
+    
+    // すべてのテキストスタイルを取得
+    const textStyles = await figma.getLocalTextStylesAsync();
+    
+    if (textStyles.length === 0) {
+        return;
+    }
+    
+    let appliedCount = 0;
+    
+    for (const textNode of textNodes) {
+        try {
+            // 現在適用されているスタイルIDを取得
+            let currentStyleId = textNode.textStyleId;
+            
+            // テキストノードのフォントファミリーを取得
+            let targetFontFamily = null;
+            let currentFontSize = null;
+            
+            // 野良テキスト（スタイル未適用）の場合
+            if (!currentStyleId || currentStyleId === '' || currentStyleId === figma.mixed) {
+                // テキストノードのプロパティを取得
+                const textProps = getTextProperties(textNode);
+                if (!textProps) {
+                    continue;
+                }
+                targetFontFamily = textProps.fontFamily;
+                currentFontSize = textProps.fontSize;
+            } else {
+                // 現在のスタイルを取得
+                const currentStyle = textStyles.find(s => s.id === currentStyleId);
+                if (!currentStyle) {
+                    continue;
+                }
+                targetFontFamily = currentStyle.fontName.family;
+                currentFontSize = currentStyle.fontSize;
+            }
+            
+            // 同じフォントファミリーのスタイルのみをフィルタリング
+            const sameFamilyStyles = textStyles.filter(style => style.fontName.family === targetFontFamily);
+            
+            if (sameFamilyStyles.length === 0) {
+                continue;
+            }
+            
+            // 同じフォントファミリーのスタイルをフォントサイズでソート
+            const sortedStyles = sameFamilyStyles.slice().sort((a, b) => a.fontSize - b.fontSize);
+            
+            // 野良テキストの場合
+            if (!currentStyleId || currentStyleId === '' || currentStyleId === figma.mixed) {
+                // フォントサイズが最も近いスタイルを見つける
+                let closestStyle = null;
+                let minSizeDiff = Infinity;
+                
+                for (const style of sortedStyles) {
+                    const sizeDiff = Math.abs(style.fontSize - currentFontSize);
+                    if (sizeDiff < minSizeDiff) {
+                        minSizeDiff = sizeDiff;
+                        closestStyle = style;
+                    }
+                }
+                
+                if (closestStyle) {
+                    await textNode.setTextStyleIdAsync(closestStyle.id);
+                    appliedCount++;
+                }
+                continue;
+            }
+            
+            // 次に大きいスタイルを見つける
+            let nextLargerStyle = null;
+            for (const style of sortedStyles) {
+                if (style.fontSize > currentFontSize) {
+                    nextLargerStyle = style;
+                    break;
+                }
+            }
+            
+            // 次に大きいスタイルがない場合（最大サイズ）、最小サイズのスタイルを適用（ループ）
+            if (!nextLargerStyle) {
+                nextLargerStyle = sortedStyles[0];
+            }
+            
+            // スタイルを適用
+            await textNode.setTextStyleIdAsync(nextLargerStyle.id);
+            appliedCount++;
+        } catch (error) {
+            console.error('Error applying larger style:', error);
+        }
+    }
+    
+    // UIが開いている場合のみスキャンを再実行して結果を更新
+    if (appliedCount > 0 && isUIVisible) {
+        setTimeout(() => {
+            scanStyles();
+        }, 500);
+    }
+}
+
+// 文字サイズの小さいスタイルを適用
+async function applySmallerStyle() {
+    const selection = figma.currentPage.selection;
+    
+    if (selection.length === 0) {
+        return;
+    }
+    
+    // 対象となるテキストノードを収集
+    const textNodes = [];
+    for (const node of selection) {
+        collectTextNodes(node, textNodes);
+    }
+    
+    if (textNodes.length === 0) {
+        return;
+    }
+    
+    // すべてのテキストスタイルを取得
+    const textStyles = await figma.getLocalTextStylesAsync();
+    
+    if (textStyles.length === 0) {
+        return;
+    }
+    
+    let appliedCount = 0;
+    
+    for (const textNode of textNodes) {
+        try {
+            // 現在適用されているスタイルIDを取得
+            let currentStyleId = textNode.textStyleId;
+            
+            // テキストノードのフォントファミリーを取得
+            let targetFontFamily = null;
+            let currentFontSize = null;
+            
+            // 野良テキスト（スタイル未適用）の場合
+            if (!currentStyleId || currentStyleId === '' || currentStyleId === figma.mixed) {
+                // テキストノードのプロパティを取得
+                const textProps = getTextProperties(textNode);
+                if (!textProps) {
+                    continue;
+                }
+                targetFontFamily = textProps.fontFamily;
+                currentFontSize = textProps.fontSize;
+            } else {
+                // 現在のスタイルを取得
+                const currentStyle = textStyles.find(s => s.id === currentStyleId);
+                if (!currentStyle) {
+                    continue;
+                }
+                targetFontFamily = currentStyle.fontName.family;
+                currentFontSize = currentStyle.fontSize;
+            }
+            
+            // 同じフォントファミリーのスタイルのみをフィルタリング
+            const sameFamilyStyles = textStyles.filter(style => style.fontName.family === targetFontFamily);
+            
+            if (sameFamilyStyles.length === 0) {
+                continue;
+            }
+            
+            // 同じフォントファミリーのスタイルをフォントサイズでソート（降順）
+            const sortedStyles = sameFamilyStyles.slice().sort((a, b) => b.fontSize - a.fontSize);
+            
+            // 野良テキストの場合
+            if (!currentStyleId || currentStyleId === '' || currentStyleId === figma.mixed) {
+                // フォントサイズが最も近いスタイルを見つける
+                let closestStyle = null;
+                let minSizeDiff = Infinity;
+                
+                for (const style of sortedStyles) {
+                    const sizeDiff = Math.abs(style.fontSize - currentFontSize);
+                    if (sizeDiff < minSizeDiff) {
+                        minSizeDiff = sizeDiff;
+                        closestStyle = style;
+                    }
+                }
+                
+                if (closestStyle) {
+                    await textNode.setTextStyleIdAsync(closestStyle.id);
+                    appliedCount++;
+                }
+                continue;
+            }
+            
+            // 次に小さいスタイルを見つける（降順でソートされているので、最初に見つかった小さいものが次に小さい）
+            let nextSmallerStyle = null;
+            for (const style of sortedStyles) {
+                if (style.fontSize < currentFontSize) {
+                    nextSmallerStyle = style;
+                    break;
+                }
+            }
+            
+            // 次に小さいスタイルがない場合（最小サイズ）、最大サイズのスタイルを適用（ループ）
+            if (!nextSmallerStyle) {
+                nextSmallerStyle = sortedStyles[0]; // 降順ソートなので最初が最大
+            }
+            
+            // スタイルを適用
+            await textNode.setTextStyleIdAsync(nextSmallerStyle.id);
+            appliedCount++;
+        } catch (error) {
+            console.error('Error applying smaller style:', error);
+        }
+    }
+    
+    // UIが開いている場合のみスキャンを再実行して結果を更新
+    if (appliedCount > 0 && isUIVisible) {
+        setTimeout(() => {
+            scanStyles();
+        }, 500);
+    }
 }

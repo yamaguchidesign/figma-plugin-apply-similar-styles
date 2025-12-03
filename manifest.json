@@ -1,18 +1,32 @@
 {
-  "name": "近いスタイルを当てる",
-  "id": "1574306527797516105",
-  "api": "1.0.0",
-  "main": "code.js",
-  "capabilities": [],
-  "enableProposedApi": false,
-  "documentAccess": "dynamic-page",
-  "editorType": [
-    "figma"
-  ],
-  "ui": "ui.html",
-  "networkAccess": {
-    "allowedDomains": [
-      "none"
+    "name": "近いスタイルを当てる",
+    "id": "1574306527797516105",
+    "api": "1.0.0",
+    "main": "code.js",
+    "capabilities": [],
+    "enableProposedApi": false,
+    "documentAccess": "dynamic-page",
+    "editorType": [
+        "figma"
+    ],
+    "ui": "ui.html",
+    "networkAccess": {
+        "allowedDomains": [
+            "none"
+        ]
+    },
+    "menu": [
+        {
+            "name": "パネルを開く",
+            "command": "open-panel"
+        },
+        {
+            "name": "文字サイズの大きいスタイルを適用",
+            "command": "apply-larger-style"
+        },
+        {
+            "name": "文字サイズの小さいスタイルを適用",
+            "command": "apply-smaller-style"
+        }
     ]
-  }
 }
