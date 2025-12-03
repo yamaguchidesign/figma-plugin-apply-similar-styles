@@ -200,6 +200,7 @@
                 opacity: 0;
                 transform: translateY(-10px);
             }
+
             to {
                 opacity: 1;
                 transform: translateY(0);
@@ -211,6 +212,7 @@
                 opacity: 1;
                 transform: translateY(0);
             }
+
             to {
                 opacity: 0;
                 transform: translateY(-10px);
@@ -219,7 +221,7 @@
 
         /* スタイル一括編集用 */
         .style-list-container {
-            max-height: 200px;
+            max-height: 350px;
             overflow-y: auto;
             margin-top: 8px;
             padding: 0;
@@ -282,6 +284,11 @@
             font-size: 11px;
         }
 
+        .edit-row input::placeholder {
+            color: #ccc;
+            opacity: 1;
+        }
+
         .edit-row select {
             flex: 1;
             padding: 6px 8px;
@@ -321,14 +328,16 @@
             <div class="result-item">スタイル未適用: <span id="scan-not-applied" class="highlight">0</span>件</div>
             <div class="result-item-with-button">
                 <span>近いスタイルがある: <span id="scan-has-nearest" class="highlight">0</span>種</span>
-                <button id="select-has-nearest" style="display: none; padding: 4px 8px; font-size: 11px; border-radius: 4px; cursor: pointer; transition: all 0.2s; border: 1px solid #ddd; background: white;">選択</button>
+                <button id="select-has-nearest"
+                    style="display: none; padding: 4px 8px; font-size: 11px; border-radius: 4px; cursor: pointer; transition: all 0.2s; border: 1px solid #ddd; background: white;">選択</button>
             </div>
             <div style="margin-top: 8px; margin-bottom: 12px;">
                 <button id="apply-nearest" class="primary" style="width: 100%; display: none;">近いスタイルを適用</button>
             </div>
             <div class="result-item-with-button">
                 <span>近いスタイルがない: <span id="scan-no-nearest" class="highlight">0</span>種</span>
-                <button id="select-no-nearest" style="display: none; padding: 4px 8px; font-size: 11px; border-radius: 4px; cursor: pointer; transition: all 0.2s; border: 1px solid #ddd; background: white;">選択</button>
+                <button id="select-no-nearest"
+                    style="display: none; padding: 4px 8px; font-size: 11px; border-radius: 4px; cursor: pointer; transition: all 0.2s; border: 1px solid #ddd; background: white;">選択</button>
             </div>
             <div style="margin-top: 8px; display: flex; gap: 8px;">
                 <button id="create-new" class="primary" style="flex: 1; display: none;">新しいスタイル<br>を作成</button>
@@ -354,16 +363,17 @@
         ページ全体で使用されていないテキストスタイルを検出します。
     </div>
 
-  <button id="check-unused" style="width: 100%;">未使用スタイルをチェック</button>
+    <button id="check-unused" style="width: 100%;">未使用スタイルをチェック</button>
 
-  <div id="unused-result" class="result">
+    <div id="unused-result" class="result">
         <div id="unused-message" class="result-item"></div>
         <div class="result-item" id="unused-with-button" style="display: none;">
             <span>未使用スタイル: <span id="unused-count" class="highlight">0</span>件</span>
         </div>
         <div id="unused-list" class="unused-styles-list" style="display: none;"></div>
         <div style="margin-top: 12px;">
-            <button id="delete-unused" class="delete-button-small primary" style="width: 100%; display: none;">未使用スタイルを全て削除</button>
+            <button id="delete-unused" class="delete-button-small primary"
+                style="width: 100%; display: none;">未使用スタイルを全て削除</button>
         </div>
     </div>
 
@@ -398,7 +408,7 @@
 
     <div id="bulk-edit-controls" style="display: none; margin-top: 16px;">
         <div style="font-size: 11px; color: #666; margin-bottom: 12px; font-weight: 600;">変更内容</div>
-        
+
         <div class="edit-row">
             <label>フォントサイズ</label>
             <input type="number" id="edit-font-size" placeholder="16">
@@ -503,7 +513,7 @@
             const countEl = document.getElementById('selected-count');
             const controlsEl = document.getElementById('bulk-edit-controls');
             countEl.textContent = `選択中: ${selectedStyleIds.size}件`;
-            
+
             if (selectedStyleIds.size > 0) {
                 controlsEl.style.display = 'block';
             } else {
@@ -520,7 +530,7 @@
             const container = document.getElementById('styles-list-container');
             const countEl = document.getElementById('selected-count');
             const controlsEl = document.getElementById('bulk-edit-controls');
-            
+
             container.innerHTML = '';
 
             if (styles.length === 0) {
@@ -534,7 +544,7 @@
             styles.forEach((style, index) => {
                 const item = document.createElement('div');
                 item.className = 'style-list-item';
-                item.innerHTML = `<span class="style-name">${style.name}</span><span class="style-line-height">${style.lineHeight}</span>`;
+                item.innerHTML = `<span class="style-name">${style.name}</span><span class="style-line-height">${style.lineHeight} ${style.letterSpacing}</span>`;
                 item.onclick = (e) => handleStyleItemClick(e, index, style.id);
                 container.appendChild(item);
             });
@@ -548,45 +558,53 @@
         document.getElementById('apply-font-size').onclick = () => {
             const value = document.getElementById('edit-font-size').value;
             if (!value) return;
-            parent.postMessage({ pluginMessage: { 
-                type: 'bulk-edit-styles',
-                property: 'fontSize',
-                value: parseFloat(value),
-                styleIds: Array.from(selectedStyleIds)
-            } }, '*');
+            parent.postMessage({
+                pluginMessage: {
+                    type: 'bulk-edit-styles',
+                    property: 'fontSize',
+                    value: parseFloat(value),
+                    styleIds: Array.from(selectedStyleIds)
+                }
+            }, '*');
         };
 
         document.getElementById('apply-line-height').onclick = () => {
             const value = document.getElementById('edit-line-height').value;
             if (!value) return;
-            parent.postMessage({ pluginMessage: { 
-                type: 'bulk-edit-styles',
-                property: 'lineHeight',
-                value: parseFloat(value),
-                styleIds: Array.from(selectedStyleIds)
-            } }, '*');
+            parent.postMessage({
+                pluginMessage: {
+                    type: 'bulk-edit-styles',
+                    property: 'lineHeight',
+                    value: parseFloat(value),
+                    styleIds: Array.from(selectedStyleIds)
+                }
+            }, '*');
         };
 
         document.getElementById('apply-letter-spacing').onclick = () => {
             const value = document.getElementById('edit-letter-spacing').value;
             if (value === '') return;
-            parent.postMessage({ pluginMessage: { 
-                type: 'bulk-edit-styles',
-                property: 'letterSpacing',
-                value: parseFloat(value),
-                styleIds: Array.from(selectedStyleIds)
-            } }, '*');
+            parent.postMessage({
+                pluginMessage: {
+                    type: 'bulk-edit-styles',
+                    property: 'letterSpacing',
+                    value: parseFloat(value),
+                    styleIds: Array.from(selectedStyleIds)
+                }
+            }, '*');
         };
 
         document.getElementById('apply-weight').onclick = () => {
             const value = document.getElementById('edit-weight').value;
             if (!value) return;
-            parent.postMessage({ pluginMessage: { 
-                type: 'bulk-edit-styles',
-                property: 'weight',
-                value: value,
-                styleIds: Array.from(selectedStyleIds)
-            } }, '*');
+            parent.postMessage({
+                pluginMessage: {
+                    type: 'bulk-edit-styles',
+                    property: 'weight',
+                    value: value,
+                    styleIds: Array.from(selectedStyleIds)
+                }
+            }, '*');
         };
 
         document.getElementById('select-has-nearest').onclick = () => {
@@ -641,14 +659,14 @@
                 } else {
                     noSelectionMsg.style.display = 'none';
                     mainContent.style.display = 'block';
-                    
+
                     document.getElementById('scan-applied').textContent = msg.applied || 0;
                     document.getElementById('scan-not-applied').textContent = msg.notApplied || 0;
                     document.getElementById('scan-has-nearest').textContent = msg.hasNearest || 0;
                     document.getElementById('scan-no-nearest').textContent = msg.noNearest || 0;
-                    
+
                     scanResult.style.display = 'block';
-                    
+
                     // 近いスタイルがある場合のみ「選択」ボタンと「近いスタイルを適用」ボタンを表示
                     if (msg.hasNearest > 0) {
                         selectHasNearestButton.style.display = 'inline-block';
@@ -657,7 +675,7 @@
                         selectHasNearestButton.style.display = 'none';
                         applyNearestButton.style.display = 'none';
                     }
-                    
+
                     // 近いスタイルがない場合のみ「選択」ボタンと「スタイルを新規作成」ボタンを表示
                     if (msg.noNearest > 0) {
                         selectNoNearestButton.style.display = 'inline-block';
@@ -666,7 +684,7 @@
                         selectNoNearestButton.style.display = 'none';
                         createNewButton.style.display = 'none';
                     }
-                    
+
                     // 近いスタイルがない場合のみ「まだ近いスタイルを適用」ボタンを表示
                     if (msg.noNearest > 0) {
                         applyClosestButton.style.display = 'block';
@@ -679,10 +697,11 @@
             if (msg.type === 'notification') {
                 const notification = document.getElementById('notification');
                 const notificationMessage = document.getElementById('notification-message');
-                
-                notificationMessage.textContent = msg.message || '';
+
+                notificationMessage.innerHTML = msg.message || '';
+                notification.style.display = '';  // インラインスタイルをクリア
                 notification.className = 'notification show';
-                
+
                 // 7秒後にフェードアウト
                 setTimeout(() => {
                     notification.classList.add('fade-out');
@@ -706,7 +725,7 @@
                     unusedMessage.style.display = 'none';
                     unusedWithButton.style.display = 'block';
                     unusedCount.textContent = msg.unusedStyles.length;
-                    
+
                     msg.unusedStyles.forEach(style => {
                         const item = document.createElement('div');
                         item.className = 'unused-style-item';
@@ -730,22 +749,22 @@
             else if (msg.type === 'delete-unused-styles-result') {
                 const deleteResult = document.getElementById('delete-result');
                 const deleteMessage = document.getElementById('delete-message');
-                
+
                 deleteResult.className = 'delete-result';
                 deleteResult.classList.remove('fade-out');
-                
+
                 if (msg.error) {
                     deleteResult.classList.add('error', 'show');
                     deleteMessage.textContent = `エラー: ${msg.error}`;
                 } else if (msg.deletedCount > 0) {
                     deleteResult.classList.add('success', 'show');
                     deleteMessage.textContent = `${msg.deletedCount}件の未使用スタイルを削除しました`;
-                    
+
                     // 削除後に再度チェックを実行して結果を更新
                     setTimeout(() => {
                         parent.postMessage({ pluginMessage: { type: 'check-unused-styles' } }, '*');
                     }, 500);
-                    
+
                     // 7秒後にフェードアウト
                     setTimeout(() => {
                         deleteResult.classList.add('fade-out');
@@ -762,17 +781,17 @@
             else if (msg.type === 'set-line-height-result') {
                 const lineHeightResult = document.getElementById('line-height-result');
                 const lineHeightMessage = document.getElementById('line-height-message');
-                
+
                 lineHeightResult.className = 'delete-result';
                 lineHeightResult.classList.remove('fade-out');
-                
+
                 if (msg.error) {
                     lineHeightResult.classList.add('error', 'show');
                     lineHeightMessage.textContent = `エラー: ${msg.error}`;
                 } else if (msg.updatedCount > 0) {
                     lineHeightResult.classList.add('success', 'show');
                     lineHeightMessage.textContent = `${msg.updatedCount}件のスタイルの行間を150%に変更しました`;
-                    
+
                     // 7秒後にフェードアウト
                     setTimeout(() => {
                         lineHeightResult.classList.add('fade-out');
@@ -795,10 +814,10 @@
             else if (msg.type === 'bulk-edit-result') {
                 const bulkEditResult = document.getElementById('bulk-edit-result');
                 const bulkEditMessage = document.getElementById('bulk-edit-message');
-                
+
                 bulkEditResult.className = 'delete-result';
                 bulkEditResult.classList.remove('fade-out');
-                
+
                 if (msg.error) {
                     bulkEditResult.classList.add('error', 'show');
                     bulkEditMessage.textContent = `エラー: ${msg.error}`;
@@ -809,12 +828,12 @@
                     }
                     bulkEditResult.classList.add('success', 'show');
                     bulkEditMessage.textContent = message;
-                    
+
                     // 更新後にスタイル一覧を再取得
                     setTimeout(() => {
                         parent.postMessage({ pluginMessage: { type: 'get-styles-list' } }, '*');
                     }, 300);
-                    
+
                     // 7秒後にフェードアウト
                     setTimeout(() => {
                         bulkEditResult.classList.add('fade-out');
