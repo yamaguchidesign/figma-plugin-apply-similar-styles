@@ -441,6 +441,7 @@ async function applyClosestStyles() {
 
     let appliedCount = 0;
     let skippedCount = 0;
+    let differentFamilyCount = 0;
 
     for (const textNode of textNodes) {
         // スタイルが既に当たっているかチェック
@@ -461,13 +462,18 @@ async function applyClosestStyles() {
 
         // 通常の条件で近いスタイルがない場合のみ、一番近いスタイルを探す
         if (!nearestStyle) {
-            const closestStyle = await findClosestStyle(textProps, textStyles);
+            const closestResult = await findClosestStyle(textProps, textStyles);
             
-            if (closestStyle) {
+            if (closestResult) {
                 // 一番近いスタイルを適用
                 try {
-                    await textNode.setTextStyleIdAsync(closestStyle.id);
+                    await textNode.setTextStyleIdAsync(closestResult.style.id);
                     appliedCount++;
+                    
+                    // フォントファミリーが異なる場合はカウント
+                    if (closestResult.isDifferentFamily) {
+                        differentFamilyCount++;
+                    }
                 } catch (error) {
                     console.error('Error applying closest text style:', error);
                     skippedCount++;
@@ -483,9 +489,16 @@ async function applyClosestStyles() {
 
     // 通知を表示
     if (appliedCount > 0) {
+        let message = `${appliedCount}件 まだ近いスタイルを適用しました`;
+        
+        // フォントファミリーが異なるスタイルを適用した場合は警告
+        if (differentFamilyCount > 0) {
+            message += `<br>⚠️ ${differentFamilyCount}件はフォントファミリーが異なるスタイルを適用しました`;
+        }
+        
         figma.ui.postMessage({
             type: 'notification',
-            message: `${appliedCount}件 まだ近いスタイルを適用しました`,
+            message: message,
             color: 'green'
         });
     }
@@ -700,10 +713,13 @@ function fontWeightToNumber(weight) {
     return 400;
 }
 
-// 条件を無視して一番近いスタイルを見つける（フォントファミリーが同じで、サイズとウェイトが最も近いもの）
+// 条件を無視して一番近いスタイルを見つける（サイズとウェイトが最も近いもの）
+// フォントファミリーが一致するものを優先し、なければ異なるファミリーからも探す
 async function findClosestStyle(textProps, textStyles) {
-    let closestStyle = null;
-    let minTotalDiff = Infinity;
+    let closestStyleSameFamily = null;
+    let minTotalDiffSameFamily = Infinity;
+    let closestStyleAnyFamily = null;
+    let minTotalDiffAnyFamily = Infinity;
 
     // テキストのウェイトを数値に変換
     const textWeightNum = fontWeightToNumber(textProps.fontWeight);
@@ -713,11 +729,6 @@ async function findClosestStyle(textProps, textStyles) {
         const styleFontName = style.fontName;
         const styleFontSize = style.fontSize;
 
-        // フォントファミリーが同じかチェック（最低限の条件）
-        if (styleFontName.family !== textProps.fontFamily) {
-            continue;
-        }
-
         // フォントサイズの差を計算
         const sizeDiff = Math.abs(styleFontSize - textProps.fontSize);
         
@@ -726,17 +737,31 @@ async function findClosestStyle(textProps, textStyles) {
         const weightDiff = Math.abs(styleWeightNum - textWeightNum);
         
         // サイズとウェイトの合計差を計算（サイズの差を優先するため、ウェイトの差は小さめの係数をかける）
-        // サイズの差をpt単位、ウェイトの差を100単位で正規化して比較
-        const totalDiff = sizeDiff + (weightDiff / 100) * 0.5; // ウェイトの差はサイズの差より影響を小さく
+        const totalDiff = sizeDiff + (weightDiff / 100) * 0.5;
 
-        // より近いスタイルを優先
-        if (totalDiff < minTotalDiff) {
-            minTotalDiff = totalDiff;
-            closestStyle = style;
+        // フォントファミリーが同じ場合
+        if (styleFontName.family === textProps.fontFamily) {
+            if (totalDiff < minTotalDiffSameFamily) {
+                minTotalDiffSameFamily = totalDiff;
+                closestStyleSameFamily = style;
+            }
+        }
+        
+        // 全てのファミリーから探す（フォールバック用）
+        if (totalDiff < minTotalDiffAnyFamily) {
+            minTotalDiffAnyFamily = totalDiff;
+            closestStyleAnyFamily = style;
         }
     }
 
-    return closestStyle;
+    // 同じファミリーのスタイルがあればそれを返す、なければ異なるファミリーのスタイルを返す
+    if (closestStyleSameFamily) {
+        return { style: closestStyleSameFamily, isDifferentFamily: false };
+    } else if (closestStyleAnyFamily) {
+        return { style: closestStyleAnyFamily, isDifferentFamily: true };
+    }
+    
+    return null;
 }
 
 // テキストノードから新規スタイルを作成
@@ -1292,10 +1317,21 @@ async function getStylesList() {
             }
         }
         
+        // レタースペーシングの表示用文字列を生成
+        let letterSpacingStr = '0%';
+        if (style.letterSpacing) {
+            if (style.letterSpacing.unit === 'PIXELS') {
+                letterSpacingStr = `${Math.round(style.letterSpacing.value * 100) / 100}px`;
+            } else if (style.letterSpacing.unit === 'PERCENT') {
+                letterSpacingStr = `${Math.round(style.letterSpacing.value * 10) / 10}%`;
+            }
+        }
+        
         return {
             id: style.id,
             name: style.name,
             lineHeight: lineHeightStr,
+            letterSpacing: letterSpacingStr,
             fontFamily: style.fontName.family,
             fontWeight: style.fontName.style
         };
@@ -1388,3 +1424,4 @@ async function bulkEditStyles(property, value, styleIds) {
         error: errors.length > 0 ? `${errors.length}件でエラー: ${errors.map(e => e.name + ' - ' + e.error).join(', ')}` : null
     });
 }
+
