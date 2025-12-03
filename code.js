@@ -100,13 +100,15 @@ async function scanStyles() {
 
     let appliedCount = 0; // スタイル適用済み
     let notAppliedCount = 0; // スタイル未適用
-    let hasNearestCount = 0; // 近いスタイルがある
-    let noNearestCount = 0; // 近いスタイルがない
     
     // 近いスタイルがあるテキストノードのIDをリセット
     hasNearestTextNodeIds = [];
     // 近いスタイルがないテキストノードのIDをリセット
     noNearestTextNodeIds = [];
+    
+    // プロパティの種類をカウントするためのSet（キーはプロパティを文字列化したもの）
+    const hasNearestPropsSet = new Set();
+    const noNearestPropsSet = new Set();
 
     for (const textNode of textNodes) {
         // スタイルが既に当たっているかチェック
@@ -122,23 +124,32 @@ async function scanStyles() {
         const textProps = getTextProperties(textNode);
 
         if (!textProps) {
-            noNearestCount++;
+            // プロパティを取得できないテキストノードのIDを保存
+            noNearestTextNodeIds.push(textNode.id);
+            noNearestPropsSet.add('unknown');
             continue;
         }
+
+        // プロパティをキー文字列に変換
+        const propsKey = createPropsKey(textProps);
 
         // 近いスタイルを探す
         const nearestStyle = await findNearestStyle(textProps, textStyles);
 
         if (nearestStyle) {
-            hasNearestCount++;
+            hasNearestPropsSet.add(propsKey);
             // 近いスタイルがあるテキストノードのIDを保存
             hasNearestTextNodeIds.push(textNode.id);
         } else {
-            noNearestCount++;
+            noNearestPropsSet.add(propsKey);
             // 近いスタイルがないテキストノードのIDを保存
             noNearestTextNodeIds.push(textNode.id);
         }
     }
+    
+    // プロパティの種類数をカウント
+    const hasNearestCount = hasNearestPropsSet.size;
+    const noNearestCount = noNearestPropsSet.size;
 
     // 結果を送信
     figma.ui.postMessage({
@@ -508,6 +519,21 @@ function hasTextStyle(textNode) {
     }
 
     return true;
+}
+
+// プロパティをキー文字列に変換（重複判定用）
+function createPropsKey(textProps) {
+    // 行の高さを正規化
+    let lineHeightValue = 'auto';
+    if (textProps.lineHeight && textProps.lineHeight.unit !== 'AUTO') {
+        if (textProps.lineHeight.unit === 'PIXELS') {
+            lineHeightValue = `${textProps.lineHeight.value}px`;
+        } else if (textProps.lineHeight.unit === 'PERCENT') {
+            lineHeightValue = `${textProps.lineHeight.value}%`;
+        }
+    }
+    
+    return `${textProps.fontFamily}|${textProps.fontWeight}|${textProps.fontSize}|${lineHeightValue}`;
 }
 
 // テキストノードのプロパティを取得（代表値）
