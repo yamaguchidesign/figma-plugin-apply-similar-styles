@@ -11,7 +11,7 @@ let isUIVisible = false;
 // UIを開く関数
 function openUI() {
     if (!isUIVisible) {
-        figma.showUI(__html__, { width: 320, height: 700 });
+        figma.showUI(__html__, { width: 320, height: 900 });
         isUIVisible = true;
         
         // 選択状態の変更を監視
@@ -61,6 +61,10 @@ figma.ui.onmessage = async (msg) => {
         await deleteUnusedStyles();
     } else if (msg.type === 'set-line-height-150') {
         await setLineHeightTo150();
+    } else if (msg.type === 'get-styles-list') {
+        await getStylesList();
+    } else if (msg.type === 'bulk-edit-styles') {
+        await bulkEditStyles(msg.property, msg.value, msg.styleIds);
     } else if (msg.type === 'cancel') {
         figma.closePlugin();
     }
@@ -1271,4 +1275,116 @@ async function applySmallerStyle() {
             scanStyles();
         }, 500);
     }
+}
+
+// スタイル一覧を取得
+async function getStylesList() {
+    const textStyles = await figma.getLocalTextStylesAsync();
+    
+    const styles = textStyles.map(style => {
+        // 行間の表示用文字列を生成
+        let lineHeightStr = 'Auto';
+        if (style.lineHeight && style.lineHeight.unit !== 'AUTO') {
+            if (style.lineHeight.unit === 'PIXELS') {
+                lineHeightStr = `${Math.round(style.lineHeight.value * 100) / 100}px`;
+            } else if (style.lineHeight.unit === 'PERCENT') {
+                lineHeightStr = `${Math.round(style.lineHeight.value)}%`;
+            }
+        }
+        
+        return {
+            id: style.id,
+            name: style.name,
+            lineHeight: lineHeightStr,
+            fontFamily: style.fontName.family,
+            fontWeight: style.fontName.style
+        };
+    });
+    
+    figma.ui.postMessage({
+        type: 'styles-list-result',
+        styles: styles
+    });
+}
+
+// スタイルを一括編集
+async function bulkEditStyles(property, value, styleIds) {
+    const textStyles = await figma.getLocalTextStylesAsync();
+    
+    let updatedCount = 0;
+    let skippedCount = 0;
+    const errors = [];
+    
+    for (const styleId of styleIds) {
+        const style = textStyles.find(s => s.id === styleId);
+        if (!style) {
+            skippedCount++;
+            continue;
+        }
+        
+        try {
+            // フォントを読み込む（必要な場合）
+            await figma.loadFontAsync({
+                family: style.fontName.family,
+                style: style.fontName.style
+            });
+            
+            if (property === 'fontSize') {
+                // フォントサイズを変更
+                style.fontSize = value;
+                updatedCount++;
+            } else if (property === 'lineHeight') {
+                // 行間を変更（パーセント）
+                style.lineHeight = {
+                    unit: 'PERCENT',
+                    value: value
+                };
+                updatedCount++;
+            } else if (property === 'letterSpacing') {
+                // レタースペースを変更（パーセント）
+                style.letterSpacing = {
+                    unit: 'PERCENT',
+                    value: value
+                };
+                updatedCount++;
+            } else if (property === 'weight') {
+                // ウェイトを変更
+                const newFontName = {
+                    family: style.fontName.family,
+                    style: value
+                };
+                
+                // 新しいフォントを読み込めるかチェック
+                try {
+                    await figma.loadFontAsync(newFontName);
+                    style.fontName = newFontName;
+                    updatedCount++;
+                } catch (fontError) {
+                    // フォントが存在しない場合はスキップ
+                    console.error(`Font not found: ${newFontName.family} ${newFontName.style}`);
+                    skippedCount++;
+                    errors.push({
+                        name: style.name,
+                        error: `${value}ウェイトが存在しません`
+                    });
+                }
+            }
+        } catch (error) {
+            console.error(`Error updating style ${style.name}:`, error);
+            skippedCount++;
+            errors.push({
+                name: style.name,
+                error: error.message || 'Unknown error'
+            });
+        }
+    }
+    
+    // 結果を送信
+    figma.ui.postMessage({
+        type: 'bulk-edit-result',
+        updatedCount: updatedCount,
+        skippedCount: skippedCount,
+        errors: errors,
+        error: errors.length > 0 ? `${errors.length}件でエラー: ${errors.map(e => e.name + ' - ' + e.error).join(', ')}` : null
+    });
 }
