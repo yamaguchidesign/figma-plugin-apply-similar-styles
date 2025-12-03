@@ -216,6 +216,97 @@
                 transform: translateY(-10px);
             }
         }
+
+        /* スタイル一括編集用 */
+        .style-list-container {
+            max-height: 200px;
+            overflow-y: auto;
+            margin-top: 8px;
+            padding: 0;
+            background: white;
+            border: 1px solid #ddd;
+            border-radius: 4px;
+        }
+
+        .style-list-item {
+            padding: 8px 10px;
+            font-size: 11px;
+            color: #333;
+            border-bottom: 1px solid #f0f0f0;
+            cursor: pointer;
+            user-select: none;
+            transition: background 0.1s;
+        }
+
+        .style-list-item:last-child {
+            border-bottom: none;
+        }
+
+        .style-list-item:hover {
+            background: #f5f5f5;
+        }
+
+        .style-list-item.selected {
+            background: #e3f2fd;
+        }
+
+        .style-list-item .style-name {
+            font-weight: 500;
+            display: inline;
+        }
+
+        .style-list-item .style-line-height {
+            color: #888;
+            display: inline;
+            margin-left: 4px;
+        }
+
+        .edit-row {
+            display: flex;
+            align-items: center;
+            gap: 8px;
+            margin-bottom: 8px;
+        }
+
+        .edit-row label {
+            width: 100px;
+            font-size: 11px;
+            color: #666;
+        }
+
+        .edit-row input {
+            width: 60px;
+            padding: 6px 8px;
+            border: 1px solid #ddd;
+            border-radius: 4px;
+            font-size: 11px;
+        }
+
+        .edit-row select {
+            flex: 1;
+            padding: 6px 8px;
+            border: 1px solid #ddd;
+            border-radius: 4px;
+            font-size: 11px;
+        }
+
+        .edit-row .unit {
+            font-size: 11px;
+            color: #888;
+            width: 20px;
+        }
+
+        .edit-row button {
+            flex: none;
+            padding: 6px 12px;
+            font-size: 11px;
+        }
+
+        .selected-count {
+            font-size: 11px;
+            color: #666;
+            margin-top: 8px;
+        }
     </style>
 </head>
 
@@ -293,8 +384,210 @@
         <div class="result-item" id="line-height-message"></div>
     </div>
 
+    <div class="separator"></div>
+
+    <h3>スタイルの一括編集</h3>
+    <div class="description">
+        既存のテキストスタイルを選択して一括編集します。
+    </div>
+
+    <button id="get-styles-list" style="width: 100%;">スタイル一覧を取得</button>
+
+    <div id="styles-list-container" class="style-list-container" style="display: none;"></div>
+    <div id="selected-count" class="selected-count" style="display: none;">選択中: 0件</div>
+
+    <div id="bulk-edit-controls" style="display: none; margin-top: 16px;">
+        <div style="font-size: 11px; color: #666; margin-bottom: 12px; font-weight: 600;">変更内容</div>
+        
+        <div class="edit-row">
+            <label>フォントサイズ</label>
+            <input type="number" id="edit-font-size" placeholder="16">
+            <span class="unit">px</span>
+            <button id="apply-font-size">適用</button>
+        </div>
+
+        <div class="edit-row">
+            <label>行間</label>
+            <input type="number" id="edit-line-height" placeholder="150">
+            <span class="unit">%</span>
+            <button id="apply-line-height">適用</button>
+        </div>
+
+        <div class="edit-row">
+            <label>レタースペース</label>
+            <input type="number" id="edit-letter-spacing" placeholder="0" step="0.1">
+            <span class="unit">%</span>
+            <button id="apply-letter-spacing">適用</button>
+        </div>
+
+        <div class="edit-row">
+            <label>ウェイト</label>
+            <select id="edit-weight">
+                <option value="">選択...</option>
+                <option value="Thin">Thin</option>
+                <option value="ExtraLight">ExtraLight</option>
+                <option value="Light">Light</option>
+                <option value="Regular">Regular</option>
+                <option value="Medium">Medium</option>
+                <option value="SemiBold">SemiBold</option>
+                <option value="Bold">Bold</option>
+                <option value="ExtraBold">ExtraBold</option>
+                <option value="Black">Black</option>
+            </select>
+            <button id="apply-weight">適用</button>
+        </div>
+    </div>
+
+    <div id="bulk-edit-result" class="delete-result">
+        <div class="result-item" id="bulk-edit-message"></div>
+    </div>
+
     <script>
         // 初期状態はcode.js側でチェックされるので、ここでは何もしない
+
+        // スタイル一括編集用の変数
+        let allStyles = [];
+        let selectedStyleIds = new Set();
+        let lastClickedIndex = -1;
+
+        // スタイル一覧を取得
+        document.getElementById('get-styles-list').onclick = () => {
+            parent.postMessage({ pluginMessage: { type: 'get-styles-list' } }, '*');
+        };
+
+        // スタイル一覧の項目クリック処理
+        function handleStyleItemClick(event, index, styleId) {
+            const isMac = navigator.platform.toUpperCase().indexOf('MAC') >= 0;
+            const isShift = event.shiftKey;
+            const isCmd = isMac ? event.metaKey : event.ctrlKey;
+
+            if (isShift && lastClickedIndex !== -1) {
+                // Shift + クリック: 間の全てを選択
+                const start = Math.min(lastClickedIndex, index);
+                const end = Math.max(lastClickedIndex, index);
+                for (let i = start; i <= end; i++) {
+                    selectedStyleIds.add(allStyles[i].id);
+                }
+            } else if (isCmd) {
+                // Cmd/Ctrl + クリック: 追加選択 or 解除
+                if (selectedStyleIds.has(styleId)) {
+                    selectedStyleIds.delete(styleId);
+                } else {
+                    selectedStyleIds.add(styleId);
+                }
+            } else {
+                // 通常クリック: 単一選択
+                selectedStyleIds.clear();
+                selectedStyleIds.add(styleId);
+            }
+
+            lastClickedIndex = index;
+            updateStyleListSelection();
+            updateSelectedCount();
+        }
+
+        // 選択状態の表示を更新
+        function updateStyleListSelection() {
+            const items = document.querySelectorAll('.style-list-item');
+            items.forEach((item, index) => {
+                if (selectedStyleIds.has(allStyles[index].id)) {
+                    item.classList.add('selected');
+                } else {
+                    item.classList.remove('selected');
+                }
+            });
+        }
+
+        // 選択件数を更新
+        function updateSelectedCount() {
+            const countEl = document.getElementById('selected-count');
+            const controlsEl = document.getElementById('bulk-edit-controls');
+            countEl.textContent = `選択中: ${selectedStyleIds.size}件`;
+            
+            if (selectedStyleIds.size > 0) {
+                controlsEl.style.display = 'block';
+            } else {
+                controlsEl.style.display = 'none';
+            }
+        }
+
+        // スタイル一覧を描画
+        function renderStylesList(styles) {
+            allStyles = styles;
+            selectedStyleIds.clear();
+            lastClickedIndex = -1;
+
+            const container = document.getElementById('styles-list-container');
+            const countEl = document.getElementById('selected-count');
+            const controlsEl = document.getElementById('bulk-edit-controls');
+            
+            container.innerHTML = '';
+
+            if (styles.length === 0) {
+                container.innerHTML = '<div style="padding: 12px; color: #888; text-align: center;">テキストスタイルがありません</div>';
+                container.style.display = 'block';
+                countEl.style.display = 'none';
+                controlsEl.style.display = 'none';
+                return;
+            }
+
+            styles.forEach((style, index) => {
+                const item = document.createElement('div');
+                item.className = 'style-list-item';
+                item.innerHTML = `<span class="style-name">${style.name}</span><span class="style-line-height">${style.lineHeight}</span>`;
+                item.onclick = (e) => handleStyleItemClick(e, index, style.id);
+                container.appendChild(item);
+            });
+
+            container.style.display = 'block';
+            countEl.style.display = 'block';
+            updateSelectedCount();
+        }
+
+        // 一括編集の適用ボタン
+        document.getElementById('apply-font-size').onclick = () => {
+            const value = document.getElementById('edit-font-size').value;
+            if (!value) return;
+            parent.postMessage({ pluginMessage: { 
+                type: 'bulk-edit-styles',
+                property: 'fontSize',
+                value: parseFloat(value),
+                styleIds: Array.from(selectedStyleIds)
+            } }, '*');
+        };
+
+        document.getElementById('apply-line-height').onclick = () => {
+            const value = document.getElementById('edit-line-height').value;
+            if (!value) return;
+            parent.postMessage({ pluginMessage: { 
+                type: 'bulk-edit-styles',
+                property: 'lineHeight',
+                value: parseFloat(value),
+                styleIds: Array.from(selectedStyleIds)
+            } }, '*');
+        };
+
+        document.getElementById('apply-letter-spacing').onclick = () => {
+            const value = document.getElementById('edit-letter-spacing').value;
+            if (value === '') return;
+            parent.postMessage({ pluginMessage: { 
+                type: 'bulk-edit-styles',
+                property: 'letterSpacing',
+                value: parseFloat(value),
+                styleIds: Array.from(selectedStyleIds)
+            } }, '*');
+        };
+
+        document.getElementById('apply-weight').onclick = () => {
+            const value = document.getElementById('edit-weight').value;
+            if (!value) return;
+            parent.postMessage({ pluginMessage: { 
+                type: 'bulk-edit-styles',
+                property: 'weight',
+                value: value,
+                styleIds: Array.from(selectedStyleIds)
+            } }, '*');
+        };
 
         document.getElementById('select-has-nearest').onclick = () => {
             parent.postMessage({ pluginMessage: { type: 'select-has-nearest' } }, '*');
@@ -490,6 +783,45 @@
                 } else {
                     lineHeightResult.classList.add('show');
                     lineHeightMessage.textContent = '行間がAutoのスタイルはありませんでした';
+                }
+            }
+
+            // スタイル一覧を受信
+            else if (msg.type === 'styles-list-result') {
+                renderStylesList(msg.styles);
+            }
+
+            // 一括編集結果を受信
+            else if (msg.type === 'bulk-edit-result') {
+                const bulkEditResult = document.getElementById('bulk-edit-result');
+                const bulkEditMessage = document.getElementById('bulk-edit-message');
+                
+                bulkEditResult.className = 'delete-result';
+                bulkEditResult.classList.remove('fade-out');
+                
+                if (msg.error) {
+                    bulkEditResult.classList.add('error', 'show');
+                    bulkEditMessage.textContent = `エラー: ${msg.error}`;
+                } else {
+                    let message = `${msg.updatedCount}件のスタイルを更新しました`;
+                    if (msg.skippedCount > 0) {
+                        message += `（${msg.skippedCount}件はスキップ）`;
+                    }
+                    bulkEditResult.classList.add('success', 'show');
+                    bulkEditMessage.textContent = message;
+                    
+                    // 更新後にスタイル一覧を再取得
+                    setTimeout(() => {
+                        parent.postMessage({ pluginMessage: { type: 'get-styles-list' } }, '*');
+                    }, 300);
+                    
+                    // 7秒後にフェードアウト
+                    setTimeout(() => {
+                        bulkEditResult.classList.add('fade-out');
+                        setTimeout(() => {
+                            bulkEditResult.classList.remove('show', 'fade-out');
+                        }, 500);
+                    }, 7000);
                 }
             }
         };
