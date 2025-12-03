@@ -173,6 +173,49 @@
             background: #cc0000 !important;
             border-color: #cc0000 !important;
         }
+
+        .notification {
+            margin-top: 12px;
+            padding: 12px;
+            background: #d4edda;
+            border: 1px solid #c3e6cb;
+            border-radius: 6px;
+            color: #155724;
+            font-size: 12px;
+            line-height: 1.5;
+            display: none;
+        }
+
+        .notification.show {
+            display: block;
+            animation: fadeIn 0.3s ease-in;
+        }
+
+        .notification.fade-out {
+            animation: fadeOut 0.5s ease-out;
+        }
+
+        @keyframes fadeIn {
+            from {
+                opacity: 0;
+                transform: translateY(-10px);
+            }
+            to {
+                opacity: 1;
+                transform: translateY(0);
+            }
+        }
+
+        @keyframes fadeOut {
+            from {
+                opacity: 1;
+                transform: translateY(0);
+            }
+            to {
+                opacity: 0;
+                transform: translateY(-10px);
+            }
+        }
     </style>
 </head>
 
@@ -192,11 +235,18 @@
             <div style="margin-top: 8px; margin-bottom: 12px;">
                 <button id="apply-nearest" class="primary" style="width: 100%; display: none;">近いスタイルを適用</button>
             </div>
-            <div class="result-item">近いスタイルがない: <span id="scan-no-nearest" class="highlight">0</span>件</div>
+            <div class="result-item-with-button">
+                <span>近いスタイルがない: <span id="scan-no-nearest" class="highlight">0</span>件</span>
+                <button id="select-no-nearest" style="display: none; padding: 4px 8px; font-size: 11px; border-radius: 4px; cursor: pointer; transition: all 0.2s; border: 1px solid #ddd; background: white;">選択</button>
+            </div>
             <div style="margin-top: 8px; display: flex; gap: 8px;">
                 <button id="create-new" class="primary" style="flex: 1; display: none;">新しいスタイル<br>を作成</button>
-                <button id="apply-closest" class="primary" style="flex: 1; display: none;">一番近い<br>スタイルを適用</button>
+                <button id="apply-closest" class="primary" style="flex: 1; display: none;">まだ近い<br>スタイルを適用</button>
             </div>
+        </div>
+
+        <div id="notification" class="notification" style="display: none;">
+            <div id="notification-message"></div>
         </div>
 
         <div id="result" class="result" style="display: none;">
@@ -237,7 +287,7 @@
         行間がAutoになっているスタイルを全て150%に変更します。
     </div>
 
-    <button id="set-line-height-150" style="width: 100%;">行間Autoを150%に変更</button>
+    <button id="set-line-height-150" style="width: 100%;">既存スタイルの行間Autoを150%に変更</button>
 
     <div id="line-height-result" class="delete-result">
         <div class="result-item" id="line-height-message"></div>
@@ -248,6 +298,10 @@
 
         document.getElementById('select-has-nearest').onclick = () => {
             parent.postMessage({ pluginMessage: { type: 'select-has-nearest' } }, '*');
+        };
+
+        document.getElementById('select-no-nearest').onclick = () => {
+            parent.postMessage({ pluginMessage: { type: 'select-no-nearest' } }, '*');
         };
 
         document.getElementById('apply-nearest').onclick = () => {
@@ -283,6 +337,7 @@
                 const mainContent = document.getElementById('main-content');
                 const scanResult = document.getElementById('scan-result');
                 const selectHasNearestButton = document.getElementById('select-has-nearest');
+                const selectNoNearestButton = document.getElementById('select-no-nearest');
                 const applyNearestButton = document.getElementById('apply-nearest');
                 const createNewButton = document.getElementById('create-new');
                 const applyClosestButton = document.getElementById('apply-closest');
@@ -310,14 +365,16 @@
                         applyNearestButton.style.display = 'none';
                     }
                     
-                    // 近いスタイルがない場合のみ「スタイルを新規作成」ボタンを表示
+                    // 近いスタイルがない場合のみ「選択」ボタンと「スタイルを新規作成」ボタンを表示
                     if (msg.noNearest > 0) {
+                        selectNoNearestButton.style.display = 'inline-block';
                         createNewButton.style.display = 'block';
                     } else {
+                        selectNoNearestButton.style.display = 'none';
                         createNewButton.style.display = 'none';
                     }
                     
-                    // 近いスタイルがない場合のみ「一番近いスタイルを適用」ボタンを表示
+                    // 近いスタイルがない場合のみ「まだ近いスタイルを適用」ボタンを表示
                     if (msg.noNearest > 0) {
                         applyClosestButton.style.display = 'block';
                     } else {
@@ -326,16 +383,21 @@
                 }
             }
 
-            if (msg.type === 'result') {
-                document.getElementById('applied').textContent = msg.applied || 0;
-                document.getElementById('created').textContent = msg.created || 0;
-                document.getElementById('skipped').textContent = msg.skipped || 0;
-                document.getElementById('result').style.display = 'block';
+            if (msg.type === 'notification') {
+                const notification = document.getElementById('notification');
+                const notificationMessage = document.getElementById('notification-message');
                 
-                // 適用後は再度スキャンを実行して結果を更新
+                notificationMessage.textContent = msg.message || '';
+                notification.className = 'notification show';
+                
+                // 7秒後にフェードアウト
                 setTimeout(() => {
-                    parent.postMessage({ pluginMessage: { type: 'scan-styles' } }, '*');
-                }, 500);
+                    notification.classList.add('fade-out');
+                    setTimeout(() => {
+                        notification.classList.remove('show', 'fade-out');
+                        notification.style.display = 'none';
+                    }, 500);
+                }, 7000);
             }
 
             else if (msg.type === 'unused-styles-result') {
