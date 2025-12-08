@@ -351,7 +351,7 @@ async function applyNearestStyles() {
     }, 500);
 }
 
-// スタイルを新規作成する（近いスタイルがないものだけ）
+// スタイルを新規作成する（スタイル未適用の全テキストに対して）
 async function createNewStyles() {
     const selection = figma.currentPage.selection;
 
@@ -385,24 +385,16 @@ async function createNewStyles() {
             continue;
         }
 
-        // 近いスタイルを探す
-        const nearestStyle = await findNearestStyle(textProps, textStyles);
-
-        if (!nearestStyle) {
-            // 近いスタイルがない場合は新規作成
-            try {
-                const newStyle = await createTextStyleFromNode(textNode, textProps);
-                if (newStyle) {
-                    textStyles.push(newStyle); // 作成したスタイルをリストに追加
-                    await textNode.setTextStyleIdAsync(newStyle.id);
-                    createdCount++;
-                }
-            } catch (error) {
-                console.error('Error creating text style:', error);
-                skippedCount++;
+        // 新規作成（近いスタイルの有無に関係なく）
+        try {
+            const newStyle = await createTextStyleFromNode(textNode, textProps);
+            if (newStyle) {
+                textStyles.push(newStyle); // 作成したスタイルをリストに追加
+                await textNode.setTextStyleIdAsync(newStyle.id);
+                createdCount++;
             }
-        } else {
-            // 近いスタイルがある場合はスキップ
+        } catch (error) {
+            console.error('Error creating text style:', error);
             skippedCount++;
         }
     }
