@@ -331,8 +331,10 @@
                 <button id="select-has-nearest"
                     style="display: none; padding: 4px 8px; font-size: 11px; border-radius: 4px; cursor: pointer; transition: all 0.2s; border: 1px solid #ddd; background: white;">選択</button>
             </div>
-            <div style="margin-top: 8px; margin-bottom: 12px;">
-                <button id="apply-nearest" class="primary" style="width: 100%; display: none;">近いスタイルを適用</button>
+            <div style="margin-top: 8px; margin-bottom: 12px; display: flex; gap: 8px;">
+                <button id="apply-nearest" class="primary" style="flex: 1; display: none;">近いスタイルを適用</button>
+                <button id="create-new-has-nearest" class="primary"
+                    style="flex: 1; display: none;">新しいスタイル<br>を作成</button>
             </div>
             <div class="result-item-with-button">
                 <span>近いスタイルがない: <span id="scan-no-nearest" class="highlight">0</span>種</span>
@@ -619,6 +621,10 @@
             parent.postMessage({ pluginMessage: { type: 'apply-nearest-styles' } }, '*');
         };
 
+        document.getElementById('create-new-has-nearest').onclick = () => {
+            parent.postMessage({ pluginMessage: { type: 'create-new-styles' } }, '*');
+        };
+
         document.getElementById('create-new').onclick = () => {
             parent.postMessage({ pluginMessage: { type: 'create-new-styles' } }, '*');
         };
@@ -650,6 +656,7 @@
                 const selectHasNearestButton = document.getElementById('select-has-nearest');
                 const selectNoNearestButton = document.getElementById('select-no-nearest');
                 const applyNearestButton = document.getElementById('apply-nearest');
+                const createNewHasNearestButton = document.getElementById('create-new-has-nearest');
                 const createNewButton = document.getElementById('create-new');
                 const applyClosestButton = document.getElementById('apply-closest');
 
@@ -671,9 +678,11 @@
                     if (msg.hasNearest > 0) {
                         selectHasNearestButton.style.display = 'inline-block';
                         applyNearestButton.style.display = 'block';
+                        createNewHasNearestButton.style.display = 'block';
                     } else {
                         selectHasNearestButton.style.display = 'none';
                         applyNearestButton.style.display = 'none';
+                        createNewHasNearestButton.style.display = 'none';
                     }
 
                     // 近いスタイルがない場合のみ「選択」ボタンと「スタイルを新規作成」ボタンを表示
