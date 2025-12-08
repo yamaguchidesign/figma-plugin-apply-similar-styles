@@ -65,6 +65,8 @@ figma.ui.onmessage = async (msg) => {
         await getStylesList();
     } else if (msg.type === 'bulk-edit-styles') {
         await bulkEditStyles(msg.property, msg.value, msg.styleIds);
+    } else if (msg.type === 'select-nodes-with-styles') {
+        await selectNodesWithStyles(msg.styleIds);
     } else if (msg.type === 'cancel') {
         figma.closePlugin();
     }
@@ -1415,5 +1417,50 @@ async function bulkEditStyles(property, value, styleIds) {
         errors: errors,
         error: errors.length > 0 ? `${errors.length}件でエラー: ${errors.map(e => e.name + ' - ' + e.error).join(', ')}` : null
     });
+}
+
+// 指定されたスタイル（複数可）が適用されているテキストノードを選択
+async function selectNodesWithStyles(styleIds) {
+    // ページ全体のテキストノードを収集
+    const allTextNodes = [];
+    collectTextNodes(figma.currentPage, allTextNodes);
+    
+    // スタイルIDのセットを作成（高速な検索のため）
+    const styleIdSet = new Set(styleIds);
+    
+    // 指定されたスタイルが適用されているノードを収集
+    const nodesToSelect = [];
+    
+    for (const textNode of allTextNodes) {
+        const textStyleId = textNode.textStyleId;
+        
+        // 完全一致
+        if (styleIdSet.has(textStyleId)) {
+            nodesToSelect.push(textNode);
+            continue;
+        }
+        
+        // mixedの場合は各範囲をチェック
+        if (textStyleId === figma.mixed) {
+            try {
+                const length = textNode.characters.length;
+                let found = false;
+                for (let i = 0; i < length && !found; i++) {
+                    const rangeStyleId = textNode.getRangeTextStyleId(i, i + 1);
+                    if (styleIdSet.has(rangeStyleId)) {
+                        nodesToSelect.push(textNode);
+                        found = true;
+                    }
+                }
+            } catch (error) {
+                console.error('Error checking mixed styles:', error);
+            }
+        }
+    }
+    
+    // ノードを選択
+    if (nodesToSelect.length > 0) {
+        figma.currentPage.selection = nodesToSelect;
+    }
 }
 
